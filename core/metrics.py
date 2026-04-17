@@ -149,15 +149,22 @@ _DA_LABELS = [
 ]
 
 _SHARES_LABELS = [
-    "Common stock, shares outstanding (in shares)",   # AAPL exact
-    # For CROX/RTX/NVDA/MSFT the BS label is a long string — catch via substring:
-    "shares issued and outstanding",            # NVDA substring
-    "shares outstanding",                       # generic substring catch-all
+    "Common stock, shares outstanding (in shares)",   # AAPL exact — cell value is real share count
     "common shares outstanding",
+    # NOTE: most other companies embed share counts in the label text itself
+    # and store 0 or par value as the cell value — handled by _pick_shares() below
+]
+
+# Weighted average shares from income statement — reliable fallback for all tickers
+_WEIGHTED_AVG_SHARE_LABELS = [
+    "Diluted (in shares)",                      # AAPL, CROX, RTX exact
+    "diluted (in shares)",
+    "Diluted shares (in shares)",
+    "Diluted shares",
+    "diluted shares",
     "weighted average shares",
     "weighted-average shares",
-    "diluted shares",
-    "basic shares",
+    "shares used in computing earnings per share",
 ]
 
 _RECEIVABLES_LABELS = [
@@ -227,6 +234,33 @@ def _pick(df: Optional[pd.DataFrame], labels: List[str]) -> Optional[float]:
     return None
 
 
+def _pick_shares(
+    balance_df: Optional[pd.DataFrame],
+    income_df:  Optional[pd.DataFrame],
+) -> Optional[float]:
+    """
+    Shares outstanding — many companies embed the count in the BS label text
+    itself (e.g. '...24,304 shares issued and outstanding') and store 0 or
+    par value as the numeric cell, making substring match unreliable.
+
+    Strategy:
+    1. Try balance sheet with safe labels where the cell value IS the count (AAPL)
+    2. Fall back to weighted average diluted shares from income statement —
+       always stored as a real number across all tickers
+    """
+    # Step 1 — balance sheet (AAPL-style, cell value = share count)
+    val = _pick(balance_df, _SHARES_LABELS)
+    if val is not None and val > 1_000:   # guard: par value is 0 or 1
+        return val
+
+    # Step 2 — weighted average diluted from income statement
+    val = _pick(income_df, _WEIGHTED_AVG_SHARE_LABELS)
+    if val is not None and val > 1_000:
+        return val
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -276,7 +310,7 @@ def extract_metrics(xbrl: Any) -> Dict[str, Optional[float]]:
     if sbc is not None and revenue and revenue != 0:
         sbc_pct = round(sbc / revenue * 100, 2)
 
-    shares         = _pick(balance_df, _SHARES_LABELS)
+    shares         = _pick_shares(balance_df, income_df)
     receivables    = _pick(balance_df, _RECEIVABLES_LABELS)
     goodwill       = _pick(balance_df, _GOODWILL_LABELS)
     impairment     = _pick(income_df, _IMPAIRMENT_LABELS)
