@@ -1,0 +1,9 @@
+edgartools
+yfinance
+fastapi
+uvicorn
+spacy
+beautifulsoup4
+lxml
+cssutils
+pytest
